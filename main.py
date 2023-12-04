@@ -5,6 +5,9 @@ import torch
 import numpy as np
 from PIL import Image
 
+import monodepth2.resnet_encoder
+import monodepth2.depth_decoder
+
 OBJECT_CONFIDENCE_THRESHOLD = 0.4
 NMS_IOU_THRESHOLD = 0.5
 
@@ -99,6 +102,10 @@ def load_cocos_class_names(coco_file_name: str) -> list[str]:
 # This program will be run on RPi4, so it should use CPU.
 rpi_device = torch.device('cpu')
 
+# Image to test with.
+test_img = Image.open('dog.jpg')
+img_width, img_height = test_img.size
+
 # YOLOv4-tiny configuration.
 yolov4_tiny = Darknet('yolov4-tiny.cfg', inference=True).to(rpi_device)
 yolov4_tiny.load_weights('yolov4-tiny.weights')
@@ -108,18 +115,59 @@ yolov4_tiny.eval()
 class_names = load_cocos_class_names('coco.names')
 
 # YOLOv4-tiny only accepts image with 416x416px, resizing is necessary
-test_img = Image.open('dog.jpg')
-image_transform = transforms.Compose([
+yolo_img_transform = transforms.Compose([
     transforms.Resize((416, 416)),
     transforms.ToTensor()
 ])
-transformed: torch.Tensor = image_transform(test_img).to(rpi_device)
-if transformed.ndimension() == 3:
-    transformed = transformed.unsqueeze(0)
+yolo_transformed: torch.Tensor = yolo_img_transform(test_img).to(rpi_device)
+if yolo_transformed.ndimension() == 3:
+    yolo_transformed = yolo_transformed.unsqueeze(0)
 
+# Monodepth2 configuration. Assumes monocular 640x192 model.
+# Configuring encoder.
+monodepth_encoder = monodepth2.resnet_encoder.ResnetEncoder(18, False)
+loaded_dict_enc = torch.load('./models/encoder.pth', map_location=rpi_device)
+
+feed_height = loaded_dict_enc['height']
+feed_width = loaded_dict_enc['width']
+filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in monodepth_encoder.state_dict()}
+
+monodepth_encoder.load_state_dict(filtered_dict_enc)
+monodepth_encoder.to(rpi_device)
+monodepth_encoder.eval()
+
+# Configuring decoder.
+monodepth_decoder = monodepth2.depth_decoder.DepthDecoder(
+    num_ch_enc=monodepth_encoder.num_ch_enc, scales=range(4))
+loaded_dict = torch.load('./models/depth.pth', map_location=rpi_device)
+monodepth_decoder.load_state_dict(loaded_dict)
+
+monodepth_decoder.to(rpi_device)
+monodepth_decoder.eval()
+
+# Resizing image.
+monodepth_img_transform = transforms.Compose([
+    transforms.Resize((feed_width, feed_height)),
+    transforms.ToTensor()
+])
+monodepth_transformed: torch.Tensor = monodepth_img_transform(test_img).to(rpi_device)
+monodepth_transformed = monodepth_transformed.unsqueeze(0)
+
+# TODO: Running model doesn't have to be in sequential way. Maybe using a multiprocessing would be a key?
+# Model inference : YOLOv4-tiny
+
+print("Running YOLOv4-tiny inference")
 with torch.no_grad():
-    output = yolov4_tiny(transformed)
+    output = yolov4_tiny(yolo_transformed)
     boxes = non_max_suppression(output)
     for box in boxes[0]:
         print(class_names[box[5]], box[4])
+print("YOLOv4-tiny inference done")
 
+# Model inference : Monodepth2
+print("Running monodepth2 inference")
+with torch.no_grad():
+    features = monodepth_encoder(monodepth_transformed)
+    output = monodepth_decoder(features)
+    # TODO: Add disparity tensor to image code here
+print("monodepth2 inference done")
