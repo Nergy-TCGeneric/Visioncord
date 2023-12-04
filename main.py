@@ -101,7 +101,6 @@ rpi_device = torch.device('cpu')
 
 # YOLOv4-tiny configuration.
 yolov4_tiny = Darknet('yolov4-tiny.cfg', inference=True).to(rpi_device)
-yolov4_tiny.print_network()
 yolov4_tiny.load_weights('yolov4-tiny.weights')
 yolov4_tiny.eval()
 
