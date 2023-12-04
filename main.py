@@ -99,10 +99,11 @@ def load_cocos_class_names(coco_file_name: str) -> list[str]:
 # This program will be run on RPi4, so it should use CPU.
 rpi_device = torch.device('cpu')
 
-model = Darknet('yolov4-tiny.cfg', inference=True).to(rpi_device)
-model.print_network()
-model.load_weights('yolov4-tiny.weights')
-model.eval()
+# YOLOv4-tiny configuration.
+yolov4_tiny = Darknet('yolov4-tiny.cfg', inference=True).to(rpi_device)
+yolov4_tiny.print_network()
+yolov4_tiny.load_weights('yolov4-tiny.weights')
+yolov4_tiny.eval()
 
 # TODO: Should migrate to other dataset, since COCO dataset lacks of indoor things like door.. etc.
 class_names = load_cocos_class_names('coco.names')
@@ -118,7 +119,8 @@ if transformed.ndimension() == 3:
     transformed = transformed.unsqueeze(0)
 
 with torch.no_grad():
-    output = model(transformed)
+    output = yolov4_tiny(transformed)
     boxes = non_max_suppression(output)
     for box in boxes[0]:
         print(class_names[box[5]], box[4])
+
