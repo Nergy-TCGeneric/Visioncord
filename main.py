@@ -3,10 +3,12 @@ from tool.darknet2pytorch import Darknet
 from torchvision.transforms import transforms
 import torch
 import numpy as np
-from PIL import Image
+import PIL.Image
 
 import monodepth2.resnet_encoder
 import monodepth2.depth_decoder
+import matplotlib
+import matplotlib.cm as cm
 
 OBJECT_CONFIDENCE_THRESHOLD = 0.4
 NMS_IOU_THRESHOLD = 0.5
@@ -103,7 +105,7 @@ def load_cocos_class_names(coco_file_name: str) -> list[str]:
 rpi_device = torch.device('cpu')
 
 # Image to test with.
-test_img = Image.open('dog.jpg')
+test_img = PIL.Image.open('test.jpg')
 img_width, img_height = test_img.size
 
 # YOLOv4-tiny configuration.
@@ -169,5 +171,17 @@ print("Running monodepth2 inference")
 with torch.no_grad():
     features = monodepth_encoder(monodepth_transformed)
     output = monodepth_decoder(features)
-    # TODO: Add disparity tensor to image code here
+
+    disp = output[("disp", 0)]
+    disp_resized = torch.nn.functional.interpolate(
+        disp, (img_height, img_width), mode="bilinear", align_corners=False)
+    
+    disp_resized_np = disp_resized.squeeze().cpu().numpy()
+    vmax = np.percentile(disp_resized_np, 95)
+    normalizer = matplotlib.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
+    mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
+    colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(np.uint8)
+    im = PIL.Image.fromarray(colormapped_im)
+    im.save('test_disp.jpg')
+
 print("monodepth2 inference done")
