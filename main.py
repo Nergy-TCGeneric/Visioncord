@@ -13,6 +13,12 @@ import matplotlib.cm as cm
 OBJECT_CONFIDENCE_THRESHOLD = 0.4
 NMS_IOU_THRESHOLD = 0.5
 
+# Known values of RPi camera v2.
+HORIZONTAL_FOV = 62.2
+VERTICAL_FOV = 48.8
+ACTIVE_H_PIXELS_MAX = 3280
+ACTIVE_V_PIXELS_MAX = 2464
+
 def check_box_exceeds_nms_threshold(boxes: np.ndarray, confidences: np.ndarray):
     x1 = boxes[:, 0]
     y1 = boxes[:, 1]
@@ -100,6 +106,13 @@ def load_cocos_class_names(coco_file_name: str) -> list[str]:
             class_names.append(line)
 
     return class_names
+
+def calculate_angle(image_size: "tuple[int, int]", point: "tuple[int, int]") -> "tuple[float, float]":
+    # Simple calculation based on center point is a point with zero degree angle
+    center_x, center_y = image_size[0] // 2, image_size[1] // 2
+    angle_x = (point[0] - center_x) / image_size[0] * HORIZONTAL_FOV
+    angle_y = (point[1] - center_y) / image_size[1] * VERTICAL_FOV
+    return (angle_x, angle_y)
 
 # This program will be run on RPi4, so it should use CPU.
 rpi_device = torch.device('cpu')
