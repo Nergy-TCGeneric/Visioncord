@@ -135,7 +135,7 @@ def estimate_distance_from_disp(disp: np.ndarray, min_depth: float, max_disp: fl
 rpi_device = torch.device('cpu')
 
 # Image to test with.
-test_img = PIL.Image.open('output.jpg')
+test_img = PIL.Image.open('test_image.jpg').convert("RGB")
 img_array = np.asarray(test_img)
 img_width, img_height = test_img.size
 
@@ -179,12 +179,9 @@ monodepth_decoder.to(rpi_device)
 monodepth_decoder.eval()
 
 # Resizing image.
-monodepth_img_transform = transforms.Compose([
-    transforms.Resize((feed_width, feed_height), interpolation=InterpolationMode.LANCZOS),
-    transforms.ToTensor()
-])
-monodepth_transformed: torch.Tensor = monodepth_img_transform(test_img).to(rpi_device)
-monodepth_transformed = monodepth_transformed.unsqueeze(0)
+input_image_resized = test_img.resize((feed_width, feed_height), PIL.Image.LANCZOS)
+monodepth_transformed: torch.Tensor = transforms.ToTensor()(input_image_resized).unsqueeze(0)
+print(monodepth_transformed)
 
 # TODO: Running model doesn't have to be in sequential way. Maybe using a multiprocessing would be a key?
 # Model inference : YOLOv4-tiny
