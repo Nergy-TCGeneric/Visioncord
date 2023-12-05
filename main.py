@@ -4,6 +4,7 @@ from torchvision.transforms import transforms
 import torch
 import numpy as np
 import PIL.Image
+import cv2
 
 import monodepth2.resnet_encoder
 import monodepth2.depth_decoder
@@ -118,7 +119,8 @@ def calculate_angle(image_size: "tuple[int, int]", point: "tuple[int, int]") -> 
 rpi_device = torch.device('cpu')
 
 # Image to test with.
-test_img = PIL.Image.open('test.jpg')
+test_img = PIL.Image.open('output.jpg')
+img_array = np.asarray(test_img)
 img_width, img_height = test_img.size
 
 # YOLOv4-tiny configuration.
@@ -176,7 +178,13 @@ with torch.no_grad():
     output = yolov4_tiny(yolo_transformed)
     boxes = non_max_suppression(output)
     for box in boxes[0]:
-        print(class_names[box[5]], box[4])
+        x1, x2 = int(img_width * box[0]), int(img_width * box[2])
+        y1, y2 = int(img_height * box[1]), int(img_height * box[3])
+        center_x = (x1 + x2) // 2
+        center_y = (y1 + y2) // 2
+        angle_x, angle_y = calculate_angle(test_img.size, (center_x, center_y))
+        print(f"Calculated angle : {angle_x} x {angle_y} degrees")
+        img_array = cv2.rectangle(img_array, (x1, y1), (x2, y2), (0, 255, 0))
 print("YOLOv4-tiny inference done")
 
 # Model inference : Monodepth2
@@ -198,3 +206,7 @@ with torch.no_grad():
     im.save('test_disp.jpg')
 
 print("monodepth2 inference done")
+img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+cv2.imshow('rectangles', img_array)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
