@@ -187,7 +187,8 @@ monodepth_img_transform = transforms.Compose([
 
 # TODO: Running model doesn't have to be in sequential way. Maybe using a multiprocessing would be a key?
 while True:
-    test_img: np.ndarray = rpi_cam.capture_array()
+    test_img = rpi_cam.capture_image().convert("RGB")
+    img_array = np.asarray(test_img)
     img_width, img_height = test_img.size
 
     # Transform image to yolo input format.
@@ -241,5 +242,7 @@ while True:
 
     img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     cv2.imshow('rectangles', img_array)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    cv2.waitKey(1)
+
+cv2.destroyAllWindows()
+rpi_cam.close()
