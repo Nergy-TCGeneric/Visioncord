@@ -1,6 +1,6 @@
 # TODO: Should remove this toolset by constructing model from scratch(!)
 from tool.darknet2pytorch import Darknet
-from torchvision.transforms import transforms
+from torchvision.transforms import transforms, InterpolationMode
 import torch
 import numpy as np
 import PIL.Image
@@ -180,7 +180,7 @@ monodepth_decoder.eval()
 
 # Resizing image.
 monodepth_img_transform = transforms.Compose([
-    transforms.Resize((feed_width, feed_height)),
+    transforms.Resize((feed_width, feed_height), interpolation=InterpolationMode.LANCZOS),
     transforms.ToTensor()
 ])
 monodepth_transformed: torch.Tensor = monodepth_img_transform(test_img).to(rpi_device)
