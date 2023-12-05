@@ -19,6 +19,10 @@ HORIZONTAL_FOV = 62.2
 VERTICAL_FOV = 48.8
 ACTIVE_H_PIXELS_MAX = 3280
 ACTIVE_V_PIXELS_MAX = 2464
+FOCAL_LENGTH = 3.04 # in mm
+
+# Experimental values for estimating depth from image.
+BASELINE = 2250 # in mm
 
 def check_box_exceeds_nms_threshold(boxes: np.ndarray, confidences: np.ndarray):
     x1 = boxes[:, 0]
@@ -92,13 +96,15 @@ def non_max_suppression(prediction: torch.Tensor):
                 ll_max_id = ll_max_id[keep]
 
                 for k in range(ll_box_array.shape[0]):
-                    bboxes.append([ll_box_array[k, 0], ll_box_array[k, 1], ll_box_array[k, 2], ll_box_array[k, 3], \
-                                   ll_max_conf[k], ll_max_id[k]])
+                    # Truncate the decimal part. we don't need it in pixel system.
+                    x1, x2 = int(img_width * ll_box_array[k, 0]), int(img_width * ll_box_array[k, 2])
+                    y1, y2 = int(img_height * ll_box_array[k, 1]), int(img_height * ll_box_array[k, 3])
+                    bboxes.append([x1, y1, x2, y2, ll_max_conf[k], ll_max_id[k]])
         
         bboxes_batch.append(bboxes)
     return bboxes_batch
 
-def load_cocos_class_names(coco_file_name: str) -> list[str]:
+def load_cocos_class_names(coco_file_name: str) -> "list[str]":
     class_names = []
     with open(coco_file_name, 'r') as f:
         lines = f.readlines()
@@ -114,6 +120,16 @@ def calculate_angle(image_size: "tuple[int, int]", point: "tuple[int, int]") -> 
     angle_x = (point[0] - center_x) / image_size[0] * HORIZONTAL_FOV
     angle_y = (point[1] - center_y) / image_size[1] * VERTICAL_FOV
     return (angle_x, angle_y)
+
+# https://github.com/nianticlabs/monodepth2/blob/b676244e5a1ca55564eb5d16ab521a48f823af31/layers.py#L16
+def estimate_distance_from_disp(disp: np.ndarray, min_depth: float, max_disp: float) -> np.ndarray:
+    # CAVEAT: monodepth2 is trained using KITTI dataset to yield consistent results.
+    # Indeed, the disp is not metric but a relative one.
+    min_disp = 1 / max_disp
+    max_disp = 1 / min_depth
+    scaled_disp = min_disp + (max_disp - min_disp) * disp
+    depth = 1 / scaled_disp * FOCAL_LENGTH * BASELINE
+    return depth
 
 # This program will be run on RPi4, so it should use CPU.
 rpi_device = torch.device('cpu')
@@ -174,16 +190,17 @@ monodepth_transformed = monodepth_transformed.unsqueeze(0)
 # Model inference : YOLOv4-tiny
 
 print("Running YOLOv4-tiny inference")
+boxes = []
 with torch.no_grad():
     output = yolov4_tiny(yolo_transformed)
     boxes = non_max_suppression(output)
     for box in boxes[0]:
-        x1, x2 = int(img_width * box[0]), int(img_width * box[2])
-        y1, y2 = int(img_height * box[1]), int(img_height * box[3])
+        x1, y1, x2, y2, class_id = box[0], box[1], box[2], box[3], box[5]
         center_x = (x1 + x2) // 2
         center_y = (y1 + y2) // 2
         angle_x, angle_y = calculate_angle(test_img.size, (center_x, center_y))
-        print(f"Calculated angle : {angle_x} x {angle_y} degrees")
+        class_name = class_names[class_id]
+        print(f"{class_name} : {angle_x} x {angle_y} degrees")
         img_array = cv2.rectangle(img_array, (x1, y1), (x2, y2), (0, 255, 0))
 print("YOLOv4-tiny inference done")
 
@@ -198,6 +215,15 @@ with torch.no_grad():
         disp, (img_height, img_width), mode="bilinear", align_corners=False)
     
     disp_resized_np = disp_resized.squeeze().cpu().numpy()
+    # These values are default values from monodepth2 repository
+    estimated_distance = estimate_distance_from_disp(disp_resized_np, 0.1, 100)
+    for box in boxes[0]:
+        x1, y1, x2, y2, name_idx = box[0], box[1], box[2], box[3], box[5]
+        dist = estimated_distance[x1:x2, y1:y2]
+        average = np.mean(dist)
+        class_name = class_names[name_idx]
+        print(f"{class_name}, {average} mm")
+
     vmax = np.percentile(disp_resized_np, 95)
     normalizer = matplotlib.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
     mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
