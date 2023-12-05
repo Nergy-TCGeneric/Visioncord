@@ -6,6 +6,10 @@ import numpy as np
 import PIL.Image
 import cv2
 
+# RPi4 only.
+import io
+from picamera2 import Picamera2
+
 import monodepth2.resnet_encoder
 import monodepth2.depth_decoder
 import matplotlib
@@ -23,6 +27,11 @@ FOCAL_LENGTH = 3.04 # in mm
 
 # Experimental values for estimating depth from image.
 BASELINE = 2250 # in mm
+
+# Set up raspberry pi's camera
+rpi_cam = Picamera2()
+rpi_cam.start()
+data = io.BytesIO()
 
 def check_box_exceeds_nms_threshold(boxes: np.ndarray, confidences: np.ndarray):
     x1 = boxes[:, 0]
@@ -134,11 +143,6 @@ def estimate_distance_from_disp(disp: np.ndarray, min_depth: float, max_disp: fl
 # This program will be run on RPi4, so it should use CPU.
 rpi_device = torch.device('cpu')
 
-# Image to test with.
-test_img = PIL.Image.open('output.jpg')
-img_array = np.asarray(test_img)
-img_width, img_height = test_img.size
-
 # YOLOv4-tiny configuration.
 yolov4_tiny = Darknet('yolov4-tiny.cfg', inference=True).to(rpi_device)
 yolov4_tiny.load_weights('yolov4-tiny.weights')
@@ -152,9 +156,6 @@ yolo_img_transform = transforms.Compose([
     transforms.Resize((416, 416)),
     transforms.ToTensor()
 ])
-yolo_transformed: torch.Tensor = yolo_img_transform(test_img).to(rpi_device)
-if yolo_transformed.ndimension() == 3:
-    yolo_transformed = yolo_transformed.unsqueeze(0)
 
 # Monodepth2 configuration. Assumes monocular 640x192 model.
 # Configuring encoder.
@@ -183,56 +184,62 @@ monodepth_img_transform = transforms.Compose([
     transforms.Resize((feed_width, feed_height)),
     transforms.ToTensor()
 ])
-monodepth_transformed: torch.Tensor = monodepth_img_transform(test_img).to(rpi_device)
-monodepth_transformed = monodepth_transformed.unsqueeze(0)
 
 # TODO: Running model doesn't have to be in sequential way. Maybe using a multiprocessing would be a key?
-# Model inference : YOLOv4-tiny
+while True:
+    test_img: np.ndarray = rpi_cam.capture_array()
+    img_width, img_height = test_img.size
 
-print("Running YOLOv4-tiny inference")
-boxes = []
-with torch.no_grad():
-    output = yolov4_tiny(yolo_transformed)
-    boxes = non_max_suppression(output)
-    for box in boxes[0]:
-        x1, y1, x2, y2, class_id = box[0], box[1], box[2], box[3], box[5]
-        center_x = (x1 + x2) // 2
-        center_y = (y1 + y2) // 2
-        angle_x, angle_y = calculate_angle(test_img.size, (center_x, center_y))
-        class_name = class_names[class_id]
-        print(f"{class_name} : {angle_x} x {angle_y} degrees")
-        img_array = cv2.rectangle(img_array, (x1, y1), (x2, y2), (0, 255, 0))
-print("YOLOv4-tiny inference done")
+    # Transform image to yolo input format.
+    yolo_transformed: torch.Tensor = yolo_img_transform(test_img).to(rpi_device)
+    yolo_transformed = yolo_transformed.unsqueeze(0)
 
-# Model inference : Monodepth2
-print("Running monodepth2 inference")
-with torch.no_grad():
-    features = monodepth_encoder(monodepth_transformed)
-    output = monodepth_decoder(features)
+    boxes = []
 
-    disp = output[("disp", 0)]
-    disp_resized = torch.nn.functional.interpolate(
-        disp, (img_height, img_width), mode="bilinear", align_corners=False)
-    
-    disp_resized_np = disp_resized.squeeze().cpu().numpy()
-    # These values are default values from monodepth2 repository
-    estimated_distance = estimate_distance_from_disp(disp_resized_np, 0.1, 100)
-    for box in boxes[0]:
-        x1, y1, x2, y2, name_idx = box[0], box[1], box[2], box[3], box[5]
-        dist = estimated_distance[x1:x2, y1:y2]
-        average = np.mean(dist)
-        class_name = class_names[name_idx]
-        print(f"{class_name}, {average} mm")
+    # Model inference : YOLOv4-tiny
+    with torch.no_grad():
+        output = yolov4_tiny(yolo_transformed)
+        boxes = non_max_suppression(output)
+        for box in boxes[0]:
+            x1, y1, x2, y2, class_id = box[0], box[1], box[2], box[3], box[5]
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
+            angle_x, angle_y = calculate_angle(test_img.size, (center_x, center_y))
+            class_name = class_names[class_id]
+            print(f"{class_name} : {angle_x} x {angle_y} degrees")
+            img_array = cv2.rectangle(img_array, (x1, y1), (x2, y2), (0, 255, 0))
 
-    vmax = np.percentile(disp_resized_np, 95)
-    normalizer = matplotlib.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
-    mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
-    colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(np.uint8)
-    im = PIL.Image.fromarray(colormapped_im)
-    im.save('test_disp.jpg')
+    # Transform image to monodepth2 input format.
+    monodepth_transformed: torch.Tensor = monodepth_img_transform(test_img).to(rpi_device)
+    monodepth_transformed = monodepth_transformed.unsqueeze(0)
 
-print("monodepth2 inference done")
-img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-cv2.imshow('rectangles', img_array)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    # Model inference : Monodepth2
+    with torch.no_grad():
+        features = monodepth_encoder(monodepth_transformed)
+        output = monodepth_decoder(features)
+
+        disp = output[("disp", 0)]
+        disp_resized = torch.nn.functional.interpolate(
+            disp, (img_height, img_width), mode="bilinear", align_corners=False)
+        
+        disp_resized_np = disp_resized.squeeze().cpu().numpy()
+        # These values are default values from monodepth2 repository
+        estimated_distance = estimate_distance_from_disp(disp_resized_np, 0.1, 100)
+        for box in boxes[0]:
+            x1, y1, x2, y2, name_idx = box[0], box[1], box[2], box[3], box[5]
+            dist = estimated_distance[x1:x2, y1:y2]
+            average = np.mean(dist)
+            class_name = class_names[name_idx]
+            print(f"{class_name}, {average} mm")
+
+        vmax = np.percentile(disp_resized_np, 95)
+        normalizer = matplotlib.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
+        mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
+        colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(np.uint8)
+        im = PIL.Image.fromarray(colormapped_im)
+        im.save('test_disp.jpg')
+
+    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    cv2.imshow('rectangles', img_array)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
