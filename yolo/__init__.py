@@ -6,6 +6,8 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
+from multiprocessing.connection import PipeConnection
+
 from dataclasses import dataclass
 
 OBJECT_CONFIDENCE_THRESHOLD = 0.4
@@ -46,12 +48,15 @@ class YOLODetector:
         self.__model.load_weights(weight_path)
         self.__model.eval()
 
-    def predict(self, image: Image) -> "list[BoundingBox]":
-        preprocessed = self.__preprocess_image(image)
-        with torch.no_grad():
-            output = self.__model(preprocessed)
-            boxes = self.__non_max_suppression(output)
-            return self.__postprocess_bboxes(boxes, image.size)
+    def predict(self, data_out: PipeConnection) -> None:
+        while True:
+            received: Image = data_out.recv()
+            preprocessed = self.__preprocess_image(received)
+            with torch.no_grad():
+                output = self.__model(preprocessed)
+                boxes = self.__non_max_suppression(output)
+                boxes = self.__postprocess_bboxes(boxes, received.size)
+                data_out.send(boxes)
 
     def __preprocess_image(self, image: Image) -> torch.Tensor:
         # It uses CPU by default, because this program is supposed to run on RPi4.

@@ -2,7 +2,9 @@ import PIL.Image
 import numpy as np
 import cv2
 
-from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Process
+from multiprocessing.connection import Pipe
+
 from camera_util import calculate_angle
 from dataset import load_cocos_class_names
 from monodepth2 import DepthEstimator
@@ -50,14 +52,23 @@ def main():
     test_img: Image = PIL.Image.open('output.jpg')
     img_array = np.asarray(test_img)
 
-    pool = ProcessPoolExecutor(max_workers=2)
+    # Start child processes respectively.
+    main_to_yolo_pipe, yolo_to_main_pipe = Pipe()
+    yolo_process = Process(target=image_detector.predict, args=(yolo_to_main_pipe, ))
+    yolo_process.start()
+
+    main_to_depth_pipe, depth_to_main_pipe = Pipe()
+    depth_process = Process(target=depth_estimator.predict, args=(depth_to_main_pipe, ))
+    depth_process.start()
+
+    print("Starting main loop..")
 
     while True:
-        yolo_future = pool.submit(image_detector.predict, test_img)
-        depth_future = pool.submit(depth_estimator.predict, test_img)
+        main_to_yolo_pipe.send(test_img)
+        main_to_depth_pipe.send(test_img)
 
-        boxes = yolo_future.result()
-        disparities = depth_future.result()
+        boxes: "list[BoundingBox]" = main_to_yolo_pipe.recv()
+        disparities: np.ndarray = main_to_depth_pipe.recv()
         estimated_distance = estimate_distance_from_disp(disparities)
 
         for box in boxes:
@@ -71,8 +82,16 @@ def main():
         cv2.imshow('rectangles', img_array)
         if cv2.waitKey(1) == ord('q'):
             break
-     
-    pool.shutdown() 
+    
+    print("Q key pressed. terminating subprocesses..")
+    # Since process are run in infinite loop, we should forcefully terminate it.
+    yolo_process.terminate()
+    depth_process.terminate()
+
+    main_to_yolo_pipe.close()
+    yolo_to_main_pipe.close() 
+    main_to_depth_pipe.close()
+    depth_to_main_pipe.close()
 
 if __name__ == '__main__':
     main()

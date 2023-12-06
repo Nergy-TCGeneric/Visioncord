@@ -6,6 +6,8 @@ import torch
 from torchvision import transforms
 import numpy as np
 
+from multiprocessing.connection import PipeConnection
+
 class DepthEstimator():
     __encoder: ResnetEncoder
     __encoder_shape: "tuple[int, int]"
@@ -37,16 +39,19 @@ class DepthEstimator():
         self.__decoder.load_state_dict(decoder_dict)
         self.__decoder.to(device).eval()
 
-    def predict(self, image: Image) -> np.ndarray:
-        preprocessed = self.__preprocess_image(image)
-        with torch.no_grad():
-            features: torch.Tensor = self.__encoder(preprocessed)
-            output: torch.Tensor = self.__decoder(features)
-            disparity: torch.Tensor = output[("disp", 0)] 
-            resized_disparity: torch.Tensor = torch.nn.functional.interpolate(
-                disparity, image.size, mode="bilinear", align_corners=False)
+    def predict(self, data_out: PipeConnection) -> None:
+        while True:
+            image: Image = data_out.recv()
+            preprocessed = self.__preprocess_image(image)
 
-            return resized_disparity.squeeze().cpu().numpy()
+            with torch.no_grad():
+                features: torch.Tensor = self.__encoder(preprocessed)
+                output: torch.Tensor = self.__decoder(features)
+                disparity: torch.Tensor = output[("disp", 0)] 
+                resized_disparity: torch.Tensor = torch.nn.functional.interpolate(
+                    disparity, image.size, mode="bilinear", align_corners=False)
+                resized_disparity = resized_disparity.squeeze().cpu().numpy()
+                data_out.send(resized_disparity)
 
     def __preprocess_image(self, image: Image) -> torch.Tensor:
         # Unlike YOLO, this requires different resizing method.
