@@ -2,14 +2,14 @@ import PIL.Image
 import numpy as np
 import cv2
 
-from concurrent.futures import ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor
 from camera_util import calculate_angle
 from dataset import load_cocos_class_names
 from monodepth2 import DepthEstimator
 from monodepth2.util import estimate_distance_from_disp, save_disparity_map_to_image
 from yolo import *
 
-def print_angles(box: BoundingBox, image: Image, class_names: list[str]) -> None:
+def print_angles(box: BoundingBox, image: Image, class_names: "list[str]") -> None:
     x1, y1 = box.p_min
     x2, y2 = box.p_max
 
@@ -20,7 +20,7 @@ def print_angles(box: BoundingBox, image: Image, class_names: list[str]) -> None
     class_name = class_names[box.class_index]
     print(f"{class_name} : {angle_x} x {angle_y} degrees")
 
-def print_distances(box: BoundingBox, dist: np.ndarray, class_names: list[str]) -> None:
+def print_distances(box: BoundingBox, dist: np.ndarray, class_names: "list[str]") -> None:
     x1, y1 = box.p_min
     x2, y2 = box.p_max
 
@@ -47,13 +47,14 @@ def main():
     class_names = load_cocos_class_names('coco.names')
 
     # Image to test with.
-    test_img: Image = PIL.Image.open('dog.jpg')
+    test_img: Image = PIL.Image.open('output.jpg')
     img_array = np.asarray(test_img)
 
-    with ProcessPoolExecutor(max_workers=2) as executor:
-        yolo_future = executor.submit(image_detector.predict, test_img)
-        depth_future = executor.submit(depth_estimator.predict, test_img)
-        wait([yolo_future, depth_future]) 
+    pool = ProcessPoolExecutor(max_workers=2)
+
+    while True:
+        yolo_future = pool.submit(image_detector.predict, test_img)
+        depth_future = pool.submit(depth_estimator.predict, test_img)
 
         boxes = yolo_future.result()
         disparities = depth_future.result()
@@ -68,8 +69,11 @@ def main():
 
         img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         cv2.imshow('rectangles', img_array)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if cv2.waitKey(1) == ord('q'):
+            break
+     
+    pool.shutdown() 
 
 if __name__ == '__main__':
     main()
+    cv2.destroyAllWindows()

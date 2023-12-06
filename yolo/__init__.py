@@ -46,7 +46,7 @@ class YOLODetector:
         self.__model.load_weights(weight_path)
         self.__model.eval()
 
-    def predict(self, image: Image) -> list[BoundingBox]:
+    def predict(self, image: Image) -> "list[BoundingBox]":
         preprocessed = self.__preprocess_image(image)
         with torch.no_grad():
             output = self.__model(preprocessed)
@@ -67,7 +67,7 @@ class YOLODetector:
 
         return transformed
     
-    def __postprocess_bboxes(self, bboxes: list, image_size: tuple[int, int]) -> list[BoundingBox]:
+    def __postprocess_bboxes(self, bboxes: list, image_size: "tuple[int, int]") -> "list[BoundingBox]":
         processed: list[BoundingBox] = []
         image_width, image_height = image_size
 

@@ -8,7 +8,7 @@ import numpy as np
 
 class DepthEstimator():
     __encoder: ResnetEncoder
-    __encoder_shape: tuple[int, int]
+    __encoder_shape: "tuple[int, int]"
     __decoder: DepthDecoder
 
     def __init__(self, encoder_weight_path: str, decoder_weight_path: str) -> None:
