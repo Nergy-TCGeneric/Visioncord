@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
-from multiprocessing.connection import PipeConnection
+from multiprocessing.connection import Connection
 
 from dataclasses import dataclass
 
@@ -48,7 +48,7 @@ class YOLODetector:
         self.__model.load_weights(weight_path)
         self.__model.eval()
 
-    def predict(self, data_out: PipeConnection) -> None:
+    def predict(self, data_out: Connection) -> None:
         while True:
             received: Image = data_out.recv()
             preprocessed = self.__preprocess_image(received)

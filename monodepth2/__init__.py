@@ -6,7 +6,7 @@ import torch
 from torchvision import transforms
 import numpy as np
 
-from multiprocessing.connection import PipeConnection
+from multiprocessing.connection import Connection
 
 class DepthEstimator():
     __encoder: ResnetEncoder
@@ -39,7 +39,7 @@ class DepthEstimator():
         self.__decoder.load_state_dict(decoder_dict)
         self.__decoder.to(device).eval()
 
-    def predict(self, data_out: PipeConnection) -> None:
+    def predict(self, data_out: Connection) -> None:
         while True:
             image: Image = data_out.recv()
             preprocessed = self.__preprocess_image(image)

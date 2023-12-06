@@ -2,8 +2,10 @@ import PIL.Image
 import numpy as np
 import cv2
 
-from multiprocessing import Process
+from multiprocessing import Process, set_start_method
 from multiprocessing.connection import Pipe
+
+from picamera2 import Picamera2
 
 from camera_util import calculate_angle
 from dataset import load_cocos_class_names
@@ -48,9 +50,9 @@ def main():
     # TODO: Should migrate to other dataset, since COCO dataset lacks of indoor things like door.. etc.
     class_names = load_cocos_class_names('coco.names')
 
-    # Image to test with.
-    test_img: Image = PIL.Image.open('output.jpg')
-    img_array = np.asarray(test_img)
+    # Prepare camera.
+    rpi_cam = Picamera2()
+    rpi_cam.start()
 
     # Start child processes respectively.
     main_to_yolo_pipe, yolo_to_main_pipe = Pipe()
@@ -64,8 +66,12 @@ def main():
     print("Starting main loop..")
 
     while True:
+        test_img: Image = rpi_cam.capture_image().convert("RGB")
+        img_array = np.asarray(test_img)
+
         main_to_yolo_pipe.send(test_img)
         main_to_depth_pipe.send(test_img)
+        print("Received data from pipes")
 
         boxes: "list[BoundingBox]" = main_to_yolo_pipe.recv()
         disparities: np.ndarray = main_to_depth_pipe.recv()
@@ -92,6 +98,8 @@ def main():
     yolo_to_main_pipe.close() 
     main_to_depth_pipe.close()
     depth_to_main_pipe.close()
+
+    rpi_cam.close()
 
 if __name__ == '__main__':
     main()
