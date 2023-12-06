@@ -102,5 +102,6 @@ def main():
     rpi_cam.close()
 
 if __name__ == '__main__':
+    set_start_method('forkserver')
     main()
     cv2.destroyAllWindows()
