@@ -14,7 +14,7 @@ def estimate_distance_from_disp(disp: np.ndarray, min_depth: float = 0.1, max_di
     min_disp = 1 / max_disp
     max_disp = 1 / min_depth
     scaled_disp = min_disp + (max_disp - min_disp) * disp
-    return scaled_disp * FOCAL_LENGTH_IN_MM * BASELINE_IN_MM
+    return 1 / scaled_disp * FOCAL_LENGTH_IN_MM * BASELINE_IN_MM
 
 def save_disparity_map_to_image(disp: np.ndarray, image_name: str) -> None:
     vmax = np.percentile(disp, 95)
