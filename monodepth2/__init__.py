@@ -44,12 +44,17 @@ class DepthEstimator():
             image: Image = data_out.recv()
             preprocessed = self.__preprocess_image(image)
 
+            # Because torch.interpolate first expands the Y-axis, not the X-axis.
+            # Therefore, we need to swap the element accordingly
+            resizing_dim = (image.size[1], image.size[0])
+
             with torch.no_grad():
                 features: torch.Tensor = self.__encoder(preprocessed)
                 output: torch.Tensor = self.__decoder(features)
-                disparity: torch.Tensor = output[("disp", 0)] 
+                disparity: torch.Tensor = output[("disp", 0)]
+
                 resized_disparity: torch.Tensor = torch.nn.functional.interpolate(
-                    disparity, image.size, mode="bilinear", align_corners=False)
+                    disparity, resizing_dim, mode="bilinear", align_corners=False)
                 resized_disparity = resized_disparity.squeeze().cpu().numpy()
                 data_out.send(resized_disparity)
 
